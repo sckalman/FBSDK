@@ -1,0 +1,4 @@
+<resources>
+    <bool name="allow_rotation">true</bool>
+    <integer name="config_maxPageSnapDuration">450</integer>
+</resources>

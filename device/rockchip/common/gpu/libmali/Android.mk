@@ -1,0 +1,46 @@
+ifeq ($(strip $(TARGET_BOARD_PLATFORM)), rk2928)
+
+LOCAL_PATH := $(call my-dir)
+
+# Use BUILD_PREBUILT instead of PRODUCT_COPY_FILES to bring in the NOTICE file.
+include $(CLEAR_VARS)
+LOCAL_PREBUILT_LIBS := ../libmali_smp/libEGL_mali.so
+LOCAL_MODULE_TAGS := optional
+LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/egl
+include $(BUILD_MULTI_PREBUILT)
+
+include $(CLEAR_VARS)
+LOCAL_PREBUILT_LIBS := ../libmali_smp/libGLESv1_CM_mali.so
+LOCAL_MODULE_TAGS := optional
+LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/egl
+include $(BUILD_MULTI_PREBUILT)
+
+include $(CLEAR_VARS)
+LOCAL_PREBUILT_LIBS := ../libmali_smp/libGLESv2_mali.so
+LOCAL_MODULE_TAGS := optional
+LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/egl
+include $(BUILD_MULTI_PREBUILT)
+
+include $(CLEAR_VARS)
+LOCAL_PREBUILT_LIBS := ../libmali_smp/libMali.so
+LOCAL_MODULE_TAGS := optional
+include $(BUILD_MULTI_PREBUILT)
+
+include $(CLEAR_VARS)
+LOCAL_PREBUILT_LIBS := ../libmali_smp/libUMP.so
+LOCAL_MODULE_TAGS := optional
+include $(BUILD_MULTI_PREBUILT)
+
+include $(CLEAR_VARS)
+LOCAL_PREBUILT_LIBS := mali.ko
+LOCAL_MODULE_TAGS := optional
+LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/modules
+include $(BUILD_MULTI_PREBUILT)
+
+include $(CLEAR_VARS)
+LOCAL_PREBUILT_LIBS := ump.ko
+LOCAL_MODULE_TAGS := optional
+LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/modules
+include $(BUILD_MULTI_PREBUILT)
+
+endif

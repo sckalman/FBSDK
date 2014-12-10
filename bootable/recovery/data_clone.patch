@@ -1,0 +1,189 @@
+diff --git a/recovery.cpp b/recovery.cpp
+index 86b4d5d..5f0235a 100755
+--- a/recovery.cpp
++++ b/recovery.cpp
+@@ -48,6 +48,7 @@
+ #include "adb_install.h"
+ #include "mtdutils/mounts.h"
+ extern "C" {
++#include <sparse/sparse.h>
+ #include "minadbd/adb.h"
+ #include "mtdutils/rk29.h"
+ #include "mtdutils/mtdutils.h"
+@@ -166,6 +167,128 @@ char recovery_version[PROPERTY_VALUE_MAX+1];
+ 
+ static const int MAX_ARG_LENGTH = 4096;
+ static const int MAX_ARGS = 100;
++static const int BUF_SIZE = 1024*1024;
++
++#ifndef O_BINARY
++#define O_BINARY 0
++#endif
++
++struct MtdPartition {
++    int device_index;
++    unsigned int size;
++    unsigned int erase_size;
++    char *name;
++};
++
++int simg2img(const char* input_path, const char *output_path)
++{
++    int in;
++    int out;
++    int i;
++    int ret;
++    struct sparse_file *s;
++
++    out = open(output_path, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0664);
++    if (out < 0) {
++        fprintf(stderr, "Cannot open output file %s\n", output_path);
++        return -1;
++    }
++
++    in = open(input_path, O_RDONLY | O_BINARY);
++    if (in < 0) {
++        fprintf(stderr, "Cannot open input file %s\n", input_path);
++        return -1;
++    }
++
++    s = sparse_file_import(in, true, false);
++    if (!s) {
++        fprintf(stderr, "Failed to read sparse file\n");
++        return -1;
++    }
++
++    lseek(out, SEEK_SET, 0);
++
++    ret = sparse_file_write(s, out, false, false, false);
++    if (ret < 0) {
++        fprintf(stderr, "Cannot write output file\n");
++        return -1;
++    }
++    sparse_file_destroy(s);
++    close(in);
++
++    close(out);
++
++    return 0;
++}
++
++static int check_and_resize_fs(const char *dev) {
++    int err;
++    const char *const resize2fs_argv[] = { "/sbin/resize2fs", dev, NULL };
++    /* -y Assume an answer of 'yes' to all questions; allows e2fsck to be used non-interactively. */
++    const char *const e2fsck_argv[] = { "/sbin/e2fsck", "-y", "-f", dev, NULL };
++
++    if (run(e2fsck_argv[0], (char **) e2fsck_argv)) {
++        LOGE("check_and_resize_fs->error %s\n", e2fsck_argv);
++        return -1;
++    }
++
++    if (run(resize2fs_argv[0], (char **) resize2fs_argv)) {
++        LOGE("check_and_resize_fs->error %s\n", resize2fs_argv);
++        return -1;
++    }
++    return 0;
++}
++
++int start_to_clone(const char *data_devname, const char *databk_devname) {
++
++    if(simg2img(databk_devname, data_devname)){
++        LOGE("null of databk ->failed to clone\n");
++        return -1;
++    }
++    LOGI("Cloning %s to %s\n", databk_devname, data_devname);
++    return 0;
++}
++
++static int clone_data_if_exist() {
++    int loop_counts;
++    int databk_size, data_partition_size;
++    char data_devname[64];
++    char databk_devname[64];
++
++    // Get partitions info
++    char buf[2048];
++    int fd = open("/proc/mtd", O_RDONLY);
++
++    int nbytes = read(fd, buf, sizeof(buf) - 1);
++    close(fd);
++    buf[nbytes] = '\0';
++    LOGI("%s", buf);
++
++    if (mtd_scan_partitions() <= 0) {
++        LOGE("clone_data_if_exist->error scanning partitions\n");
++        return -1;
++    }
++    const MtdPartition *databk_partition = mtd_find_partition_by_name(DATABK_PARTITION_NAME);
++    if (databk_partition == NULL) {
++        LOGE("clone_data_if_exist->can't find %s partition\n", DATABK_PARTITION_NAME);
++        return -1;
++    }
++    const MtdPartition *data_partition = mtd_find_partition_by_name(DATA_PARTITION_NAME);
++    if (data_partition == NULL) {
++        LOGE("clone_data_if_exist->can't find %s partition\n", DATA_PARTITION_NAME);
++        return -1;
++    }
++    sprintf(data_devname, "/dev/block/mtdblock%d", data_partition->device_index);
++    sprintf(databk_devname, "/dev/block/mtdblock%d", databk_partition->device_index);
++
++    // Start to clone
++    if (start_to_clone(data_devname, databk_devname)) {
++        LOGE("clone_data_if_exist->error clone data\n");
++        return -1;
++    }
++    return 0;
++}
++
+ 
+ // open a given path, mounting partitions as necessary
+ FILE*
+@@ -408,7 +531,7 @@ finish_recovery(const char *send_intent) {
+ 		      fclose(fp);
+ 		      bAutoUpdateComplete=false;
+      }
+-     
++
+     // Remove the command file, so recovery won't repeat indefinitely.
+     if (ensure_path_mounted(COMMAND_FILE) != 0 ||
+         (unlink(COMMAND_FILE) && errno != ENOENT)) {
+@@ -974,10 +1097,10 @@ print_property(const char *key, const char *name, void *cookie) {
+ void SetSdcardRootPath(void)
+ {
+      property_get("InternalSD_ROOT", IN_SDCARD_ROOT, "");
+-	   LOGI("InternalSD_ROOT: %s\n", IN_SDCARD_ROOT);	
++	   LOGI("InternalSD_ROOT: %s\n", IN_SDCARD_ROOT);
+ 	   property_get("ExternalSD_ROOT", EX_SDCARD_ROOT, "");
+-	   LOGI("ExternalSD_ROOT: %s\n", EX_SDCARD_ROOT);	
+-	   
++	   LOGI("ExternalSD_ROOT: %s\n", EX_SDCARD_ROOT);
++
+ 	   return;
+ }
+ 
+@@ -1270,7 +1393,7 @@ main(int argc, char **argv) {
+ 	}
+ 
+     get_auto_sdcard_update_path(&auto_sdcard_update_path);
+-    
++
+     char bootmode[256];
+     property_get("ro.bootmode", bootmode, "unknown");
+     printf("bootmode = %s \n", bootmode);
+@@ -1367,10 +1490,13 @@ main(int argc, char **argv) {
+     	}
+ 
+     	if (status != INSTALL_SUCCESS) ui->Print("Installation aborted.\n");
+-		
++
+     } else if (wipe_data) {
+         if (device->WipeData()) status = INSTALL_ERROR;
+-        if (erase_volume("/data")) status = INSTALL_ERROR;
++        // First clone /databk to /data, if faild, format /data
++        if (clone_data_if_exist()) {
++            if (erase_volume("/data")) status = INSTALL_ERROR;
++        }
+         if (wipe_cache && erase_volume("/cache")) status = INSTALL_ERROR;
+ #ifdef USE_BOARD_ID
+         if(wipe_all) {
